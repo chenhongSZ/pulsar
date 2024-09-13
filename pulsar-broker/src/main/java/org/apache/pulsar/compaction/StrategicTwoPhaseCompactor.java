@@ -31,6 +31,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.mledger.ManagedLedgerConfig;
 import org.apache.bookkeeper.mledger.impl.LedgerMetadataUtils;
 import org.apache.pulsar.broker.ServiceConfiguration;
 import org.apache.pulsar.client.api.Consumer;
@@ -75,19 +76,29 @@ public class StrategicTwoPhaseCompactor extends PublishingOrderCompactor {
         phaseOneLoopReadTimeout = Duration.ofSeconds(conf.getBrokerServiceCompactionPhaseOneLoopTimeInSeconds());
     }
 
-    public CompletableFuture<Long> compact(String topic) {
+    public CompletableFuture<Long> compact(String topic, ManagedLedgerConfig config) {
         throw new UnsupportedOperationException();
     }
 
 
     public <T> CompletableFuture<Long> compact(String topic,
+                                               TopicCompactionStrategy<T> strategy, ManagedLedgerConfig config) {
+        return compact(topic, strategy, null, config);
+    }
+
+    public <T> CompletableFuture<Long> compact(String topic,
                                                TopicCompactionStrategy<T> strategy) {
-        return compact(topic, strategy, null);
+        return compact(topic, strategy, null, null);
+    }
+
+    public <T> CompletableFuture<Long> compact(String topic,
+                                               TopicCompactionStrategy<T> strategy, CryptoKeyReader cryptoKeyReader) {
+        return compact(topic, strategy, cryptoKeyReader, null);
     }
 
     public <T> CompletableFuture<Long> compact(String topic,
                                                TopicCompactionStrategy<T> strategy,
-                                               CryptoKeyReader cryptoKeyReader) {
+                                               CryptoKeyReader cryptoKeyReader, ManagedLedgerConfig config) {
         CompletableFuture<Consumer<T>> consumerFuture = new CompletableFuture<>();
         if (cryptoKeyReader != null) {
             batchMessageContainer.setCryptoKeyReader(cryptoKeyReader);
@@ -95,10 +106,10 @@ public class StrategicTwoPhaseCompactor extends PublishingOrderCompactor {
         CompactionReaderImpl reader = CompactionReaderImpl.create(
                 (PulsarClientImpl) pulsar, strategy.getSchema(), topic, consumerFuture, cryptoKeyReader);
 
-        return consumerFuture.thenComposeAsync(__ -> compactAndCloseReader(reader, strategy), scheduler);
+        return consumerFuture.thenComposeAsync(__ -> compactAndCloseReader(reader, strategy, config), scheduler);
     }
 
-    <T> CompletableFuture<Long> doCompaction(Reader<T> reader, TopicCompactionStrategy strategy) {
+    <T> CompletableFuture<Long> doCompaction(Reader<T> reader, TopicCompactionStrategy strategy, ManagedLedgerConfig config) {
 
         if (!(reader instanceof CompactionReaderImpl<T>)) {
             return CompletableFuture.failedFuture(
@@ -108,7 +119,7 @@ public class StrategicTwoPhaseCompactor extends PublishingOrderCompactor {
                 .thenCompose(available -> {
                     if (available) {
                         return phaseOne(reader, strategy)
-                                .thenCompose((result) -> phaseTwo(result, reader, bk));
+                                .thenCompose((result) -> phaseTwo(result, reader, bk, config));
                     } else {
                         log.info("Skip compaction of the empty topic {}", reader.getTopic());
                         return CompletableFuture.completedFuture(-1L);
@@ -116,10 +127,11 @@ public class StrategicTwoPhaseCompactor extends PublishingOrderCompactor {
                 });
     }
 
-    <T> CompletableFuture<Long> compactAndCloseReader(Reader<T> reader, TopicCompactionStrategy strategy) {
+    <T> CompletableFuture<Long> compactAndCloseReader(Reader<T> reader, TopicCompactionStrategy strategy,
+                                                      ManagedLedgerConfig config) {
         CompletableFuture<Long> promise = new CompletableFuture<>();
         mxBean.addCompactionStartOp(reader.getTopic());
-        doCompaction(reader, strategy).whenComplete(
+        doCompaction(reader, strategy, config).whenComplete(
                 (ledgerId, exception) -> {
                     log.info("Completed doCompaction ledgerId:{}", ledgerId);
                     reader.closeAsync().whenComplete((v, exception2) -> {
@@ -324,12 +336,12 @@ public class StrategicTwoPhaseCompactor extends PublishingOrderCompactor {
         }
     }
 
-    private <T> CompletableFuture<Long> phaseTwo(PhaseOneResult<T> phaseOneResult, Reader<T> reader, BookKeeper bk) {
+    private <T> CompletableFuture<Long> phaseTwo(PhaseOneResult<T> phaseOneResult, Reader<T> reader, BookKeeper bk, ManagedLedgerConfig config) {
         log.info("Completed phase one. Result:{}. ", phaseOneResult);
         Map<String, byte[]> metadata =
                 LedgerMetadataUtils.buildMetadataForCompactedLedger(
                         phaseOneResult.topic, phaseOneResult.lastId.toByteArray());
-        return createLedger(bk, metadata)
+        return createLedger(bk, metadata, config)
                 .thenCompose((ledger) -> {
                     log.info(
                             "Commencing phase two of compaction for {}, from {} to {}, compacting {} keys to ledger {}",

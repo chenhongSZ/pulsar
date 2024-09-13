@@ -54,8 +54,10 @@ import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
+import org.apache.bookkeeper.client.api.LedgerMetadata;
 import org.apache.bookkeeper.client.api.OpenBuilder;
 import org.apache.bookkeeper.mledger.AsyncCallbacks;
+import org.apache.bookkeeper.mledger.ManagedLedgerConfig;
 import org.apache.bookkeeper.mledger.ManagedLedgerException;
 import org.apache.bookkeeper.mledger.ManagedLedgerInfo;
 import org.apache.bookkeeper.mledger.Position;
@@ -141,7 +143,10 @@ public class CompactionTest extends MockedPulsarServiceBaseTest {
         return compactor.compact(topic).get();
     }
 
-
+    protected long compact(String topic, CryptoKeyReader cryptoKeyReader, ManagedLedgerConfig config)
+            throws ExecutionException, InterruptedException {
+        return compactor.compact(topic, config).get();
+    }
     protected long compact(String topic, CryptoKeyReader cryptoKeyReader)
             throws ExecutionException, InterruptedException {
         return compactor.compact(topic).get();
@@ -2363,5 +2368,41 @@ public class CompactionTest extends MockedPulsarServiceBaseTest {
         }
 
         Assert.assertEquals(results, expected);
+    }
+
+    @Test
+    public void testCompactWithManagedLedgerConfig() throws Exception {
+        String topic = "persistent://my-property/use/my-ns/my-topic1";
+
+        Producer<byte[]> producer = pulsarClient.newProducer()
+                .topic(topic)
+                .enableBatching(false)
+                .create();
+        pulsarClient.newConsumer().topic(topic).subscriptionName("sub1").readCompacted(true).subscribe().close();
+
+        producer.newMessage().key("key0").value("content0".getBytes()).send();
+        long compactedLedgerId = compact(topic);
+        LedgerMetadata ledgerMetadata = bk.getLedgerMetadata(compactedLedgerId).get(5, TimeUnit.SECONDS);
+        Assert.assertEquals(ledgerMetadata.getEnsembleSize(), conf.getManagedLedgerDefaultEnsembleSize());
+        Assert.assertEquals(ledgerMetadata.getWriteQuorumSize(), conf.getManagedLedgerDefaultWriteQuorum());
+        Assert.assertEquals(ledgerMetadata.getAckQuorumSize(), conf.getManagedLedgerDefaultAckQuorum());
+
+        producer.newMessage().key("key1").value("content1".getBytes()).send();
+        compactedLedgerId = compact(topic, null, null);
+        ledgerMetadata = bk.getLedgerMetadata(compactedLedgerId).get(5, TimeUnit.SECONDS);
+        Assert.assertEquals(ledgerMetadata.getEnsembleSize(), conf.getManagedLedgerDefaultEnsembleSize());
+        Assert.assertEquals(ledgerMetadata.getWriteQuorumSize(), conf.getManagedLedgerDefaultWriteQuorum());
+        Assert.assertEquals(ledgerMetadata.getAckQuorumSize(), conf.getManagedLedgerDefaultAckQuorum());
+
+        producer.newMessage().key("key2").value("content2".getBytes()).send();
+        ManagedLedgerConfig config = new ManagedLedgerConfig();
+        config.setEnsembleSize(3);
+        config.setWriteQuorumSize(2);
+        config.setAckQuorumSize(1);
+        compactedLedgerId = compact(topic, null, config);
+        ledgerMetadata = bk.getLedgerMetadata(compactedLedgerId).get(5, TimeUnit.SECONDS);
+        Assert.assertEquals(ledgerMetadata.getEnsembleSize(), config.getEnsembleSize());
+        Assert.assertEquals(ledgerMetadata.getWriteQuorumSize(), config.getWriteQuorumSize());
+        Assert.assertEquals(ledgerMetadata.getAckQuorumSize(), config.getAckQuorumSize());
     }
 }

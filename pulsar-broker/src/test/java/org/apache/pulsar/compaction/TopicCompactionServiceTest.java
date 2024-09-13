@@ -133,7 +133,7 @@ public class TopicCompactionServiceTest extends MockedPulsarServiceBaseTest {
 
         producer.flush();
 
-        service.compact().join();
+        service.compact(null).join();
 
 
         CompactedTopicImpl compactedTopic = service.getCompactedTopic();

@@ -33,6 +33,7 @@ import java.util.function.Supplier;
 import javax.annotation.Nonnull;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.mledger.Entry;
+import org.apache.bookkeeper.mledger.ManagedLedgerConfig;
 import org.apache.bookkeeper.mledger.Position;
 import org.apache.pulsar.common.api.proto.BrokerEntryMetadata;
 import org.apache.pulsar.common.protocol.Commands;
@@ -55,14 +56,14 @@ public class PulsarTopicCompactionService implements TopicCompactionService {
     }
 
     @Override
-    public CompletableFuture<Void> compact() {
+    public CompletableFuture<Void> compact(ManagedLedgerConfig config) {
         Compactor compactor;
         try {
             compactor = compactorSupplier.get();
         } catch (Throwable e) {
             return CompletableFuture.failedFuture(e);
         }
-        return compactor.compact(topic).thenApply(x -> null);
+        return compactor.compact(topic, config).thenApply(x -> null);
     }
 
     @Override

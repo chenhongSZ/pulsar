@@ -173,7 +173,7 @@ public class CompactorTool {
         PulsarClient pulsar = createClient(brokerConfig);
 
         Compactor compactor = new PublishingOrderCompactor(brokerConfig, pulsar, bk, scheduler);
-        long ledgerId = compactor.compact(arguments.topic).get();
+        long ledgerId = compactor.compact(arguments.topic, null).get();
         log.info("Compaction of topic {} complete. Compacted to ledger {}", arguments.topic, ledgerId);
     }
 

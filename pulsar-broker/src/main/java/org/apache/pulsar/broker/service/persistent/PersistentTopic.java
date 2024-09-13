@@ -3999,9 +3999,9 @@ public class PersistentTopic extends AbstractTopic implements Topic, AddEntryCal
 
                 if (strategicCompactionMap.containsKey(topic)) {
                     currentCompaction = brokerService.pulsar().getStrategicCompactor()
-                            .compact(topic, strategicCompactionMap.get(topic));
+                            .compact(topic, strategicCompactionMap.get(topic), getManagedLedger().getConfig());
                 } else {
-                    currentCompaction = topicCompactionService.compact().thenApply(x -> null);
+                    currentCompaction = topicCompactionService.compact(getManagedLedger().getConfig()).thenApply(x -> null);
                 }
             } finally {
                 lock.readLock().unlock();

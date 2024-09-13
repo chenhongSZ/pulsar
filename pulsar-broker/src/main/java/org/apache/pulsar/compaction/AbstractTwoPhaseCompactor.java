@@ -32,6 +32,7 @@ import java.util.function.BiPredicate;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.mledger.ManagedLedgerConfig;
 import org.apache.bookkeeper.mledger.impl.LedgerMetadataUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.pulsar.broker.ServiceConfiguration;
@@ -85,12 +86,13 @@ public abstract class AbstractTwoPhaseCompactor<T> extends Compactor {
       MessageMetadata metadata, MessageId id);
 
   @Override
-  protected CompletableFuture<Long> doCompaction(RawReader reader, BookKeeper bk) {
+  protected CompletableFuture<Long> doCompaction(RawReader reader, BookKeeper bk, ManagedLedgerConfig config) {
     return reader.hasMessageAvailableAsync()
         .thenCompose(available -> {
           if (available) {
             return phaseOne(reader).thenCompose(
-                (r) -> phaseTwo(reader, r.from, r.to, r.lastReadId, toLatestMessageIdForKey(r.latestForKey), bk));
+                    (r) -> phaseTwo(reader, r.from, r.to, r.lastReadId, toLatestMessageIdForKey(r.latestForKey), bk,
+                            config));
           } else {
             log.info("Skip compaction of the empty topic {}", reader.getTopic());
             return CompletableFuture.completedFuture(-1L);
@@ -169,11 +171,12 @@ public abstract class AbstractTwoPhaseCompactor<T> extends Compactor {
   }
 
   private CompletableFuture<Long> phaseTwo(RawReader reader, MessageId from, MessageId to,
-      MessageId lastReadId,
-      Map<String, MessageId> latestForKey, BookKeeper bk) {
+                                           MessageId lastReadId,
+                                           Map<String, MessageId> latestForKey, BookKeeper bk,
+                                           ManagedLedgerConfig config) {
     Map<String, byte[]> metadata =
         LedgerMetadataUtils.buildMetadataForCompactedLedger(reader.getTopic(), to.toByteArray());
-    return createLedger(bk, metadata).thenCompose((ledger) -> {
+    return createLedger(bk, metadata, config).thenCompose((ledger) -> {
       log.info(
           "Commencing phase two of compaction for {}, from {} to {}, compacting {} keys to ledger {}",
           reader.getTopic(), from, to, latestForKey.size(), ledger.getId());
@@ -314,13 +317,26 @@ public abstract class AbstractTwoPhaseCompactor<T> extends Compactor {
   }
 
   protected CompletableFuture<LedgerHandle> createLedger(BookKeeper bk,
-      Map<String, byte[]> metadata) {
+                                                         Map<String, byte[]> metadata, ManagedLedgerConfig config) {
     CompletableFuture<LedgerHandle> bkf = new CompletableFuture<>();
 
     try {
-      bk.asyncCreateLedger(conf.getManagedLedgerDefaultEnsembleSize(),
-          conf.getManagedLedgerDefaultWriteQuorum(),
-          conf.getManagedLedgerDefaultAckQuorum(),
+
+      int ensembleSize;
+      int writeQuorumSize;
+      int ackQuorumSize;
+
+      if (config != null) {
+        ensembleSize = config.getEnsembleSize();
+        writeQuorumSize = config.getWriteQuorumSize();
+        ackQuorumSize = config.getAckQuorumSize();
+      } else {
+        ensembleSize = conf.getManagedLedgerDefaultEnsembleSize();
+        writeQuorumSize = conf.getManagedLedgerDefaultWriteQuorum();
+        ackQuorumSize = conf.getManagedLedgerDefaultAckQuorum();
+      }
+
+      bk.asyncCreateLedger(ensembleSize, writeQuorumSize, ackQuorumSize,
           Compactor.COMPACTED_TOPIC_LEDGER_DIGEST_TYPE,
           Compactor.COMPACTED_TOPIC_LEDGER_PASSWORD,
           (rc, ledger, ctx) -> {

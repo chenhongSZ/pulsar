@@ -64,6 +64,13 @@ public class PulsarMockLedgerHandle extends LedgerHandle {
     @Getter
     boolean fenced = false;
 
+    @Getter
+    int ensSize;
+    @Getter
+    int writeQuorumSize;
+    @Getter
+    int ackQuorumSize;
+
     public PulsarMockLedgerHandle(PulsarMockBookKeeper bk, long id,
                            DigestType digest, byte[] passwd) throws GeneralSecurityException {
         super(bk.getClientCtx(), id, new Versioned<>(createMetadata(id, digest, passwd), new LongVersion(0L)),
@@ -72,6 +79,23 @@ public class PulsarMockLedgerHandle extends LedgerHandle {
         this.id = id;
         this.digest = digest;
         this.passwd = Arrays.copyOf(passwd, passwd.length);
+
+        readHandle = new PulsarMockReadHandle(bk, id, getLedgerMetadata(), entries);
+    }
+
+    public PulsarMockLedgerHandle(PulsarMockBookKeeper bk, long id,
+                                  DigestType digest, byte[] passwd, int ensSize, int writeQuorumSize, int ackQuorumSize)
+            throws GeneralSecurityException {
+        super(bk.getClientCtx(), id, new Versioned<>(createMetadata(id, digest, passwd), new LongVersion(0L)),
+                digest, passwd, WriteFlag.NONE);
+        this.bk = bk;
+        this.id = id;
+        this.digest = digest;
+        this.passwd = Arrays.copyOf(passwd, passwd.length);
+
+        this.ensSize = ensSize;
+        this.writeQuorumSize = writeQuorumSize;
+        this.ackQuorumSize = ackQuorumSize;
 
         readHandle = new PulsarMockReadHandle(bk, id, getLedgerMetadata(), entries);
     }

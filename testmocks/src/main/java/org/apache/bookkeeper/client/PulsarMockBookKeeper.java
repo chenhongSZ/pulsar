@@ -27,6 +27,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
@@ -42,6 +43,8 @@ import org.apache.bookkeeper.client.AsyncCallback.CreateCallback;
 import org.apache.bookkeeper.client.AsyncCallback.DeleteCallback;
 import org.apache.bookkeeper.client.AsyncCallback.OpenCallback;
 import org.apache.bookkeeper.client.api.DeleteBuilder;
+import org.apache.bookkeeper.client.api.DigestType;
+import org.apache.bookkeeper.client.api.LedgerMetadata;
 import org.apache.bookkeeper.client.api.OpenBuilder;
 import org.apache.bookkeeper.client.api.ReadHandle;
 import org.apache.bookkeeper.client.impl.OpenBuilderBase;
@@ -124,7 +127,8 @@ public class PulsarMockBookKeeper extends BookKeeper {
                     long id = sequence.getAndIncrement();
                     log.info("Creating ledger {}", id);
                     PulsarMockLedgerHandle lh =
-                            new PulsarMockLedgerHandle(PulsarMockBookKeeper.this, id, digestType, passwd);
+                            new PulsarMockLedgerHandle(PulsarMockBookKeeper.this, id, digestType, passwd, ensSize,
+                                    writeQuorumSize, ackQuorumSize);
                     ledgers.put(id, lh);
                     return FutureUtils.value(lh);
                 } catch (Throwable t) {
@@ -160,6 +164,17 @@ public class PulsarMockBookKeeper extends BookKeeper {
     public void asyncCreateLedger(int ensSize, int qSize, DigestType digestType, byte[] passwd, CreateCallback cb,
             Object ctx) {
         asyncCreateLedger(ensSize, qSize, qSize, digestType, passwd, cb, ctx, Collections.emptyMap());
+    }
+
+    @Override
+    public CompletableFuture<LedgerMetadata> getLedgerMetadata(long ledgerId) {
+        PulsarMockLedgerHandle lh = ledgers.get(ledgerId);
+        if (lh == null) {
+            return FutureUtils.exception(new BKException.BKNoSuchLedgerExistsException());
+        } else {
+            return CompletableFuture.completedFuture(
+                    new MockMetadata(lh.id, lh.getEnsSize(), lh.getWriteQuorumSize(), lh.getAckQuorumSize()));
+        }
     }
 
     @Override
@@ -470,4 +485,108 @@ public class PulsarMockBookKeeper extends BookKeeper {
     }
 
     private static final Logger log = LoggerFactory.getLogger(PulsarMockBookKeeper.class);
+
+    static class MockMetadata implements LedgerMetadata {
+        private final long ledgerId;
+        private final int ensSize;
+        private final int writeQuorumSize;
+        private final int ackQuorumSize;
+
+        MockMetadata(long ledgerId, int ensSize, int writeQuorumSize, int ackQuorumSize) {
+            this.ledgerId = ledgerId;
+            this.ensSize = ensSize;
+            this.writeQuorumSize = writeQuorumSize;
+            this.ackQuorumSize = ackQuorumSize;
+        }
+
+        @Override
+        public long getLedgerId() {
+            return ledgerId;
+        }
+
+        @Override
+        public boolean hasPassword() {
+            return false;
+        }
+
+        @Override
+        public State getState() {
+            return null;
+        }
+
+        @Override
+        public int getMetadataFormatVersion() {
+            return -1;
+        }
+
+        @Override
+        public long getCToken() {
+            return 0;
+        }
+
+        @Override
+        public int getEnsembleSize() {
+            return ensSize;
+        }
+
+        @Override
+        public int getWriteQuorumSize() {
+            return writeQuorumSize;
+        }
+
+        @Override
+        public int getAckQuorumSize() {
+            return ackQuorumSize;
+        }
+
+        @Override
+        public long getLastEntryId() {
+            return -1;
+        }
+
+        @Override
+        public long getLength() {
+            return -1;
+        }
+
+        @Override
+        public org.apache.bookkeeper.client.api.DigestType getDigestType() {
+            return null;
+        }
+
+        @Override
+        public byte[] getPassword() {
+            return null;
+        }
+
+        @Override
+        public long getCtime() {
+            return -1;
+        }
+
+        @Override
+        public boolean isClosed() {
+            return false;
+        }
+
+        @Override
+        public Map<String, byte[]> getCustomMetadata() {
+            return null;
+        }
+
+        @Override
+        public List<BookieId> getEnsembleAt(long entryId) {
+            throw new UnsupportedOperationException("Pulsar shouldn't look at this");
+        }
+
+        @Override
+        public NavigableMap<Long, ? extends List<BookieId>> getAllEnsembles() {
+            throw new UnsupportedOperationException("Pulsar shouldn't look at this");
+        }
+
+        @Override
+        public String toSafeString() {
+            return toString();
+        }
+    }
 }

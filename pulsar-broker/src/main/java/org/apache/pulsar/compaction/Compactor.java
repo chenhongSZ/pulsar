@@ -22,6 +22,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import org.apache.bookkeeper.client.BookKeeper;
+import org.apache.bookkeeper.mledger.ManagedLedgerConfig;
 import org.apache.pulsar.broker.ServiceConfiguration;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.RawReader;
@@ -55,15 +56,20 @@ public abstract class Compactor {
         this.mxBean = new CompactorMXBeanImpl();
     }
 
-    public CompletableFuture<Long> compact(String topic) {
+    public CompletableFuture<Long> compact(String topic, ManagedLedgerConfig config) {
         return RawReader.create(pulsar, topic, COMPACTION_SUBSCRIPTION, false).thenComposeAsync(
-                this::compactAndCloseReader, scheduler);
+                r -> compactAndCloseReader(r, config), scheduler);
     }
 
-    private CompletableFuture<Long> compactAndCloseReader(RawReader reader) {
+    public CompletableFuture<Long> compact(String topic) {
+        return RawReader.create(pulsar, topic, COMPACTION_SUBSCRIPTION, false).thenComposeAsync(
+                r -> compactAndCloseReader(r, null), scheduler);
+    }
+
+    private CompletableFuture<Long> compactAndCloseReader(RawReader reader, ManagedLedgerConfig config) {
         CompletableFuture<Long> promise = new CompletableFuture<>();
         mxBean.addCompactionStartOp(reader.getTopic());
-        doCompaction(reader, bk).whenComplete(
+        doCompaction(reader, bk, config).whenComplete(
                 (ledgerId, exception) -> {
                     reader.closeAsync().whenComplete((v, exception2) -> {
                         if (exception2 != null) {
@@ -82,7 +88,7 @@ public abstract class Compactor {
         return promise;
     }
 
-    protected abstract CompletableFuture<Long> doCompaction(RawReader reader, BookKeeper bk);
+    protected abstract CompletableFuture<Long> doCompaction(RawReader reader, BookKeeper bk, ManagedLedgerConfig config);
 
     public CompactorMXBean getStats() {
         return this.mxBean;

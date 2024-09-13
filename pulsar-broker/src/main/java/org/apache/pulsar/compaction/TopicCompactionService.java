@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import javax.annotation.Nonnull;
 import org.apache.bookkeeper.mledger.Entry;
+import org.apache.bookkeeper.mledger.ManagedLedgerConfig;
 import org.apache.bookkeeper.mledger.Position;
 import org.apache.pulsar.common.classification.InterfaceAudience;
 import org.apache.pulsar.common.classification.InterfaceStability;
@@ -34,9 +35,10 @@ public interface TopicCompactionService extends AutoCloseable {
      * Topic Compaction is a key-based retention mechanism. It keeps the most recent value for a given key and
      * user reads compacted data from TopicCompactionService.
      *
+     * @param config         the original topic's ManagedLedger config.
      * @return a future that will be completed when the compaction is done.
      */
-    CompletableFuture<Void> compact();
+    CompletableFuture<Void> compact(ManagedLedgerConfig config);
 
     /**
      * Read the compacted entries from the TopicCompactionService.

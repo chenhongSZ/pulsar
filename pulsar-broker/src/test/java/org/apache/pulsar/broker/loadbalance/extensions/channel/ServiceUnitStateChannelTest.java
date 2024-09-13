@@ -959,7 +959,7 @@ public class ServiceUnitStateChannelTest extends MockedPulsarServiceBaseTest {
                     .untilAsserted(() -> {
                         channel1.publishAssignEventAsync(bundle, brokerId1);
                         verify(compactor, times(1))
-                                .compact(eq(ServiceUnitStateChannelImpl.TOPIC), any());
+                                .compact(eq(ServiceUnitStateChannelImpl.TOPIC), any(), any(), any());
                     });
 
 
